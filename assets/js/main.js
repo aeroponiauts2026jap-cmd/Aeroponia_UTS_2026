@@ -18,8 +18,8 @@
         const firebaseConfig = {
             apiKey: "AIzaSyDuMehgD-CrrSLW6SIz4OMg7LzDGbY9NTw",
             authDomain: "aeroponia-uts.firebaseapp.com",
-            databaseURL: "https://aeroponia-uts-default-rtdb.firebaseio.com",
-            projectId: "aeroponia-uts",
+            databaseURL: "https://aeroponia-uts-2026-default-rtdb.firebaseio.com",
+            projectId: "Aeroponia-UTS",
             storageBucket: "aeroponia-uts.firebasestorage.app",
             messagingSenderId: "553659066320",
             appId: "1:553659066320:web:2fe4b64c723727c8b67bd5"
