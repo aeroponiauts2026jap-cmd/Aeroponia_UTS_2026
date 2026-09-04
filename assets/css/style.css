@@ -65,12 +65,15 @@
         }
 
         .logo-app {
-            height: 62px;
-            width: 62px;
-            object-fit: contain;
-            border-radius: 8px;
-            vertical-align: middle;
-        }
+           width: 120px !important;
+           height: 120px !important;
+           max-width: none !important;
+           max-height: none !important;
+           object-fit: contain;
+           border-radius: 8px;
+           vertical-align: middle;
+         }
+           
 
         .status-badge {
             background: #f59e0b;
