@@ -2685,7 +2685,7 @@
             }
         }, 100);
 
-        console.log("🚀 Dashboard Aeroponia UTS - Versión corregida");
+        console.log("🚀 Aeroponia UTS - Versión corregida");
         console.log("✅ Los botones de etapa NO afectan el selector de cultivo");
         console.log("✅ El selector de cultivo solo cambia el cultivo localmente");
         console.log(`🌱 Cultivo: ${getCultivoInfo().nombre}`);
