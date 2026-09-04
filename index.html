@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title> Aeroponia UTS - Asistente Práctico</title>
 
-
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- Font Awesome -->
@@ -41,6 +40,11 @@
                         <option value="albahaca">🌱 Albahaca</option>
                         <option value="espinaca">🥗 Espinaca</option>
                     </select>
+                    <!-- BOTÓN INFO CULTIVO -->
+                    <button class="cultivo-info-btn" id="btnInfoCultivo" title="Ver información del cultivo">
+                        <i class="fas fa-circle-info"></i>
+                        <span>Info</span>
+                    </button>
                 </div>
                 <button class="guia-ayuda-btn" id="btnGuia">
                     <i class="fas fa-circle-question"></i> Guía
@@ -366,13 +370,28 @@
         </div>
     </div>
 
-
+    <!-- =========================================================
+         MODAL INFO CULTIVO (ESTILO JUEGO)
+    ========================================================= -->
+    <div class="modal-cultivo-overlay" id="modalCultivoOverlay">
+        <div class="modal-cultivo-card">
+            <div class="modal-cultivo-header">
+                <span class="modal-cultivo-icono" id="modalCultivoIcono">🌱</span>
+                <h2 id="modalCultivoTitulo">Lechuga</h2>
+                <button class="modal-cultivo-cerrar" id="modalCultivoCerrar">
+                    <i class="fas fa-xmark"></i>
+                </button>
+            </div>
+            <div class="modal-cultivo-body" id="modalCultivoBody">
+                <!-- Se genera con JS -->
+            </div>
+        </div>
+    </div>
 
     <!-- =========================================================
          JAVASCRIPT COMPLETO
     ========================================================= -->
     <script type="module" src="assets/js/main.js"></script>
-
 
 </body>
 
