@@ -340,6 +340,12 @@ let fechaInicio = null;
 let cambioPendiente = null;
 let previewEtapa = null;
 
+// ---- BOMBA ----
+let bombaModo = null;
+let bombaSegundos = null;
+let bombaUltimoTimestamp = null;
+let bombaTimerInterval = null;
+
 // =========================================================
 // ESTADO DE CONEXIÓN POR TIMEOUT
 // =========================================================
@@ -360,7 +366,7 @@ function getCultivoInfo() {
 function getRangoPorEtapa(sensor, dias) {
     const cultivo = getCultivoInfo();
     let etapaActual = cultivo.etapas[0];
-    
+
     for (let i = cultivo.etapas.length - 1; i >= 0; i--) {
         if (dias >= cultivo.etapas[i].dia) {
             etapaActual = cultivo.etapas[i];
@@ -558,7 +564,7 @@ function detectarAnomaliaConHistorial(sensor, valorActual) {
 function obtenerEstado(sensor, valor) {
     const dias = obtenerDiasTranscurridos();
     const rango = getRangoPorEtapa(sensor, dias);
-    
+
     if (valor === null || valor === undefined || isNaN(valor)) {
         return { estado: "warning", texto: "⚠️ Sin datos" };
     }
@@ -675,10 +681,10 @@ function generarSolucionesPracticas(sensor, valor) {
     } else if (sensor === 'ph') {
         if (valor < min) {
             explicacion = `🔬 El pH está ÁCIDO (${valor.toFixed(2)}) para la etapa ${etapa}.`;
-            soluciones = ["🧪 Añade pH UP", "⏳ Espera 15 minutos y mide", "🔄 Repite hasta llegar a pH ${ideal}"];
+            soluciones = ["🧪 Añade pH UP", "⏳ Espera 15 minutos y mide", `🔄 Repite hasta llegar a pH ${ideal}`];
         } else if (valor > max) {
             explicacion = `🔬 El pH está ALCALINO (${valor.toFixed(2)}) para la etapa ${etapa}.`;
-            soluciones = ["🧪 Añade pH DOWN", "⏳ Espera 15 minutos y mide", "🔄 Repite hasta llegar a pH ${ideal}"];
+            soluciones = ["🧪 Añade pH DOWN", "⏳ Espera 15 minutos y mide", `🔄 Repite hasta llegar a pH ${ideal}`];
         } else {
             explicacion = `✅ El pH (${valor.toFixed(2)}) es ideal para la etapa ${etapa}.`;
             soluciones = ["👍 Mantén las condiciones actuales"];
@@ -695,8 +701,6 @@ function generarSolucionesPracticas(sensor, valor) {
             soluciones = ["👍 Mantén la temperatura estable"];
         }
     }
-
-    soluciones = soluciones.map(s => s.replace(/\${ideal}/g, ideal).replace(/\${min}/g, min).replace(/\${max}/g, max));
 
     return { soluciones, explicacion };
 }
@@ -840,6 +844,71 @@ function actualizarTarjetaBomba(valor) {
 }
 
 // =========================================================
+// 10B. CUENTA REGRESIVA DE LA BOMBA
+// =========================================================
+function formatearSegundos(s) {
+    if (!Number.isFinite(s) || s < 0) return "--:--";
+    const m = Math.floor(s / 60);
+    const seg = Math.floor(s % 60);
+    return `${String(m).padStart(2, '0')}:${String(seg).padStart(2, '0')}`;
+}
+
+function textoModoBomba(modo) {
+    switch (modo) {
+        case "ON":     return "💧 Regando";
+        case "EMERG":  return "🔥 Riego emergencia";
+        case "DESC":   return "⏸️ En descanso";
+        case "ESPERA": return "⏳ Esperando riego";
+        default:       return "🤖 Estado desconocido";
+    }
+}
+
+function iniciarCuentaRegresivaBomba() {
+    if (bombaTimerInterval) clearInterval(bombaTimerInterval);
+
+    bombaTimerInterval = setInterval(() => {
+        if (isOffline || bombaSegundos === null || !bombaUltimoTimestamp) return;
+
+        const transcurridoLocal = Math.floor((Date.now() - bombaUltimoTimestamp) / 1000);
+        const segundosActuales = Math.max(0, bombaSegundos - transcurridoLocal);
+
+        actualizarInfoBombaUI(segundosActuales);
+    }, 1000);
+
+    actualizarInfoBombaUI(bombaSegundos);
+}
+
+function actualizarInfoBombaUI(segundos) {
+    const elemModo = document.getElementById("bomba-modo");
+    const elemTiempo = document.getElementById("bomba-tiempo");
+    const infoBox = document.querySelector(".bomba-info");
+
+    if (!elemModo || !elemTiempo) return;
+
+    if (isOffline || bombaModo === null) {
+        elemModo.textContent = "📡 Sin datos";
+        elemTiempo.textContent = "--:--";
+        if (infoBox) infoBox.className = "bomba-info";
+        return;
+    }
+
+    elemModo.textContent = textoModoBomba(bombaModo);
+
+    let color = "#94a3b8";
+    let clase = "bomba-info";
+    switch (bombaModo) {
+        case "ON":     color = "#22c55e"; clase += " modo-on";     break;
+        case "EMERG":  color = "#ef4444"; clase += " modo-emerg";  break;
+        case "DESC":   color = "#f59e0b"; clase += " modo-desc";   break;
+        case "ESPERA": color = "#64748b"; clase += " modo-espera"; break;
+    }
+    elemModo.style.color = color;
+    if (infoBox) infoBox.className = clase;
+
+    elemTiempo.textContent = formatearSegundos(segundos);
+}
+
+// =========================================================
 // 11. DETALLE DEL SENSOR
 // =========================================================
 window.abrirDetalle = function(sensor) {
@@ -904,11 +973,11 @@ function actualizarDetalle(sensor) {
     `;
 
     if (isOffline) {
-        document.getElementById("detalle-significado-text").textContent = 
+        document.getElementById("detalle-significado-text").textContent =
             "⚠️ El ESP32 no está enviando datos. El sistema aeropónico sigue funcionando de forma autónoma con los últimos parámetros configurados.";
-        document.getElementById("detalle-tendencia-text").textContent = 
+        document.getElementById("detalle-tendencia-text").textContent =
             "📡 No hay datos nuevos. Revisa la conexión del ESP32.";
-        document.getElementById("detalle-soluciones-text").innerHTML = 
+        document.getElementById("detalle-soluciones-text").innerHTML =
             `<p style="color: #fca5a5;">⚠️ El ESP32 no está transmitiendo datos. Verifica:</p>
             <ul>
                 <li>🔌 Conexión WiFi del ESP32</li>
@@ -917,7 +986,7 @@ function actualizarDetalle(sensor) {
                 <li>📡 Conexión a Firebase</li>
             </ul>
             <p style="color: #fcd34d; margin-top: 8px;">🤖 El sistema sigue funcionando de forma autónoma.</p>`;
-        document.getElementById("detalle-recomendacion-text").textContent = 
+        document.getElementById("detalle-recomendacion-text").textContent =
             "Revisa la conexión del ESP32. El sistema no necesita intervención para seguir operando.";
         return;
     }
@@ -961,14 +1030,14 @@ function actualizarDetalleBomba() {
                 <strong>${valor ? "✅ Encendida" : "⏸️ Apagada"}</strong>
             </div>
         `;
-        document.getElementById("detalle-significado-text").textContent = 
+        document.getElementById("detalle-significado-text").textContent =
             "⚠️ El ESP32 no está enviando datos. La bomba opera con el ciclo programado localmente.";
-        document.getElementById("detalle-tendencia-text").textContent = 
+        document.getElementById("detalle-tendencia-text").textContent =
             "📡 No hay datos nuevos. Revisa la conexión del ESP32.";
-        document.getElementById("detalle-soluciones-text").innerHTML = 
+        document.getElementById("detalle-soluciones-text").innerHTML =
             `<p style="color: #fca5a5;">⚠️ El ESP32 no está transmitiendo datos. Verifica la conexión.</p>
             <p style="color: #fcd34d; margin-top: 8px;">🤖 El sistema sigue funcionando de forma autónoma.</p>`;
-        document.getElementById("detalle-recomendacion-text").textContent = 
+        document.getElementById("detalle-recomendacion-text").textContent =
             "Revisa la conexión del ESP32. El sistema no necesita intervención.";
         return;
     }
@@ -984,6 +1053,9 @@ function actualizarDetalleBomba() {
 
     const cultivo = getCultivoInfo();
 
+    const infoModo = bombaModo ? textoModoBomba(bombaModo) : "--";
+    const infoSeg  = bombaSegundos !== null ? formatearSegundos(bombaSegundos) : "--:--";
+
     document.getElementById("detalle-titulo").innerHTML = `
         <i class="fas fa-power-off"></i>
         Análisis de la Bomba (${cultivo.nombre})
@@ -995,12 +1067,16 @@ function actualizarDetalleBomba() {
             <strong>${valor ? "✅ Encendida" : "⏸️ Apagada"}</strong>
         </div>
         <div class="dato-mini">
-            <span>Tiempo encendida</span>
-            <strong>${porcentajeEncendida}%</strong>
+            <span>Modo</span>
+            <strong>${infoModo}</strong>
         </div>
         <div class="dato-mini">
-            <span>Cambios recientes</span>
-            <strong>${ciclos}</strong>
+            <span>Próximo cambio</span>
+            <strong>${infoSeg}</strong>
+        </div>
+        <div class="dato-mini">
+            <span>Tiempo encendida</span>
+            <strong>${porcentajeEncendida}%</strong>
         </div>
     `;
 
@@ -1009,7 +1085,7 @@ function actualizarDetalleBomba() {
         "La bomba está apagada, en espera del próximo ciclo.";
 
     document.getElementById("detalle-tendencia-text").textContent =
-        `En las últimas ${recientes.length} mediciones, la bomba estuvo encendida un ${porcentajeEncendida}% del tiempo.`;
+        `En las últimas ${recientes.length} mediciones, la bomba estuvo encendida un ${porcentajeEncendida}% del tiempo. Cambios de estado recientes: ${ciclos}.`;
 
     const solucionesDiv = document.getElementById("detalle-soluciones-text");
     let solucionesHtml = `<p style="color: #c4b5fd; margin-bottom: 8px;">🔧 La bomba es el corazón del sistema.</p><ul>`;
@@ -1065,11 +1141,11 @@ function actualizarPanelCrecimiento(previewIdx = null) {
     document.getElementById('etapaDia').textContent = `Día ${diasMostrar}`;
     document.getElementById('etapaDesc').textContent = etapaActual.descripcion;
     document.getElementById('progresoPorcentaje').textContent = `${porcentaje}%`;
-    
+
     const barra = document.getElementById('progresoBarra');
     barra.style.width = `${porcentaje}%`;
     barra.classList.toggle('offline', isOffline);
-    
+
     document.getElementById('diasTranscurridos').textContent = diasMostrar;
     document.getElementById('diasTotales').textContent = cultivo.ciclo.promedio;
     document.getElementById('etapaCorta').textContent = etapaActual.nombre;
@@ -1114,7 +1190,7 @@ function actualizarPanelCrecimiento(previewIdx = null) {
     const btnAplicar = document.getElementById('btnAplicar');
     const btnCancelar = document.getElementById('btnCancelar');
     const btnDia0 = document.getElementById('btnDia0');
-    
+
     if (isOffline) {
         btnAplicar.disabled = true;
         btnCancelar.disabled = true;
@@ -1140,34 +1216,34 @@ function actualizarPanelCrecimiento(previewIdx = null) {
 }
 
 // =========================================================
-// 13. FUNCIONES DE PREVIEW Y ACCIONES (SOLO ETAPA, NO TOCA CULTIVO)
+// 13. FUNCIONES DE PREVIEW Y ACCIONES
 // =========================================================
 window.seleccionarPreview = function(idx) {
     if (isOffline) return;
-    
+
     const cultivo = getCultivoInfo();
     const diasActuales = obtenerDiasTranscurridos();
     const etapaActual = getEtapaActual(diasActuales);
-    
+
     const nombreSeleccionado = cultivo.etapas[idx].nombre
         .replace(/[^a-zA-Záéíóúñ ]/g, '')
         .trim()
         .toLowerCase()
         .normalize("NFD")
         .replace(/[\u0300-\u036f]/g, '');
-        
+
     const nombreActual = etapaActual.nombre
         .replace(/[^a-zA-Záéíóúñ ]/g, '')
         .trim()
         .toLowerCase()
         .normalize("NFD")
         .replace(/[\u0300-\u036f]/g, '');
-    
+
     if (nombreSeleccionado === nombreActual) {
         cancelarPreview();
         return;
     }
-    
+
     previewEtapa = idx;
     actualizarPanelCrecimiento(idx);
 };
@@ -1179,48 +1255,48 @@ function cancelarPreview() {
 
 function aplicarPreview() {
     if (previewEtapa === null || isOffline) return;
-    
+
     const cultivo = getCultivoInfo();
     const etapa = cultivo.etapas[previewEtapa];
     const dias = etapa.dia;
-    
+
     const ahora = new Date();
     const nuevaFecha = new Date(ahora);
     nuevaFecha.setDate(nuevaFecha.getDate() - dias);
     const fechaStr = nuevaFecha.toISOString().split('T')[0];
-    
+
     fechaInicio = fechaStr;
     localStorage.setItem('fechaSiembra', fechaStr);
     document.getElementById('fechaSiembraPanel').value = fechaStr;
-    
+
     let etapaFirebase = "";
     const mapa = {
         "germinacion": "germinacion",
-        "plantula": "plantula", 
+        "plantula": "plantula",
         "crecimiento": "crecimiento",
         "desarrollo": "desarrollo",
         "floracion": "floracion",
         "cosecha": "cosecha"
     };
-    
+
     let nombreLimpio = etapa.nombre
         .replace(/[^a-zA-Záéíóúñ ]/g, '')
         .trim()
         .toLowerCase()
         .normalize("NFD")
         .replace(/[\u0300-\u036f]/g, '');
-    
+
     for (const [key, value] of Object.entries(mapa)) {
         if (nombreLimpio.includes(key) || key.includes(nombreLimpio)) {
             etapaFirebase = value;
             break;
         }
     }
-    
+
     if (etapaFirebase === "") {
         etapaFirebase = nombreLimpio;
     }
-    
+
     const etapaRef = ref(db, "Aeroponia-UTS/Config/etapa");
     set(etapaRef, etapaFirebase)
         .then(() => {
@@ -1232,18 +1308,18 @@ function aplicarPreview() {
         .catch((error) => {
             console.error("❌ Error al actualizar etapa:", error);
         });
-    
+
     previewEtapa = null;
     actualizarPanelCrecimiento(null);
     actualizarEstadoGeneral();
-    
+
     if (datosActuales) {
         for (const sensor in configuracion) {
             const valor = Number(datosActuales[configuracion[sensor].campo]);
             actualizarTarjeta(sensor, valor);
         }
     }
-    
+
     document.getElementById('btnAplicar').disabled = true;
     document.getElementById('btnCancelar').disabled = true;
     document.getElementById('btnDia0').disabled = false;
@@ -1252,25 +1328,25 @@ function aplicarPreview() {
 
 function dia0() {
     if (isOffline) return;
-    
+
     if (confirm('¿Estás seguro de que quieres reiniciar el cultivo a Día 0?')) {
         const hoy = new Date();
         const fechaStr = hoy.toISOString().split('T')[0];
         fechaInicio = fechaStr;
         localStorage.setItem('fechaSiembra', fechaStr);
         document.getElementById('fechaSiembraPanel').value = fechaStr;
-        
+
         previewEtapa = null;
         actualizarPanelCrecimiento(null);
         actualizarEstadoGeneral();
-        
+
         if (datosActuales) {
             for (const sensor in configuracion) {
                 const valor = Number(datosActuales[configuracion[sensor].campo]);
                 actualizarTarjeta(sensor, valor);
             }
         }
-        
+
         if (chatIniciado) {
             agregarMensaje(`🔄 Cultivo reiniciado a Día 0 (Germinación)`, "bot");
         }
@@ -1282,25 +1358,25 @@ function dia0() {
 // =========================================================
 function actualizarEstadoOffline(offline) {
     isOffline = offline;
-    
+
     const badge = document.getElementById("statusBadge");
     const text = document.getElementById("statusText");
     const icon = document.getElementById("statusIcon");
     const banner = document.getElementById("offlineBanner");
     const alerta = document.getElementById("alertaBox");
-    
+
     if (offline) {
         badge.className = "status-badge offline";
         text.textContent = '📡 Sin datos ESP32';
         icon.className = 'fas fa-wifi-slash';
-        
+
         banner.classList.add("visible");
-        
+
         if (offlineStartTime === null) {
             offlineStartTime = new Date();
         }
         iniciarTimerOffline();
-        
+
         alerta.className = "alerta-box offline";
         alerta.innerHTML = `
             <i class="fas fa-microchip"></i>
@@ -1319,17 +1395,17 @@ function actualizarEstadoOffline(offline) {
                 </span>
             </span>
         `;
-        
+
         document.getElementById('chartContainer').classList.add('offline');
         document.getElementById('tableWrapper').classList.add('offline');
-        
+
     } else {
         badge.className = "status-badge connected";
         text.textContent = '✅ Conectado';
         icon.className = 'fas fa-circle';
-        
+
         banner.classList.remove("visible");
-        
+
         if (offlineStartTime !== null) {
             offlineStartTime = null;
         }
@@ -1337,13 +1413,13 @@ function actualizarEstadoOffline(offline) {
             clearInterval(offlineTimerInterval);
             offlineTimerInterval = null;
         }
-        
+
         document.getElementById('chartContainer').classList.remove('offline');
         document.getElementById('tableWrapper').classList.remove('offline');
-        
+
         actualizarEstadoGeneral();
     }
-    
+
     if (datosActuales) {
         for (const sensor in configuracion) {
             const valor = Number(datosActuales[configuracion[sensor].campo]);
@@ -1351,7 +1427,7 @@ function actualizarEstadoOffline(offline) {
         }
         actualizarTarjetaBomba(datosActuales.bomba);
     }
-    
+
     actualizarPanelCrecimiento(previewEtapa);
     actualizarDetalleAbierto();
     actualizarAsistente();
@@ -1362,13 +1438,13 @@ function iniciarTimerOffline() {
     if (offlineTimerInterval) {
         clearInterval(offlineTimerInterval);
     }
-    
+
     offlineTimerInterval = setInterval(() => {
         if (!offlineStartTime) return;
-        
+
         const ahora = new Date();
         const diff = Math.floor((ahora - offlineStartTime) / 1000);
-        
+
         let tiempoStr = '';
         if (diff < 60) {
             tiempoStr = `hace ${diff}s`;
@@ -1380,12 +1456,12 @@ function iniciarTimerOffline() {
             const mins = Math.floor((diff % 3600) / 60);
             tiempoStr = `hace ${horas}h ${mins}m`;
         }
-        
+
         const timerElement = document.getElementById('offlineTimer');
         if (timerElement) {
             timerElement.textContent = `(${tiempoStr})`;
         }
-        
+
         const timerAlerta = document.getElementById('offlineTimerAlerta');
         if (timerAlerta) {
             timerAlerta.textContent = `⏱️ ${tiempoStr}`;
@@ -1400,7 +1476,7 @@ function reiniciarTimeout() {
     if (dataTimeout) {
         clearTimeout(dataTimeout);
     }
-    
+
     dataTimeout = setTimeout(() => {
         if (isOffline) {
             actualizarEstadoOffline(true);
@@ -1417,17 +1493,21 @@ let datosRecibidos = false;
 
 onValue(valorActualRef, snapshot => {
     const datos = snapshot.val();
-    
+
     if (!datos) {
-        if (!datosRecibidos) {
-        }
         return;
     }
 
     datosRecibidos = true;
     datosActuales = datos;
     lastUpdateTime = new Date();
-    
+
+    // ---- BOMBA: leer los campos nuevos ----
+    bombaModo = datos.bomba_modo || null;
+    bombaSegundos = Number(datos.bomba_segundos);
+    if (!Number.isFinite(bombaSegundos)) bombaSegundos = null;
+    bombaUltimoTimestamp = Date.now();
+
     const ultimaSpan = document.getElementById('ultimaActualizacion');
     if (ultimaSpan) {
         ultimaSpan.textContent = lastUpdateTime.toLocaleTimeString();
@@ -1448,6 +1528,7 @@ onValue(valorActualRef, snapshot => {
         actualizarTarjeta(sensor, valor);
     }
     actualizarTarjetaBomba(datos.bomba);
+    iniciarCuentaRegresivaBomba();
 
     actualizarEstadoGeneral();
 
@@ -1691,7 +1772,7 @@ function actualizarAsistente() {
     if (isOffline) {
         estadoGeneral.innerHTML = `📡 SIN DATOS | ${totalRegistros} reg.`;
         estadoGeneral.style.color = "#ef4444";
-        
+
         container.innerHTML = `
             <div class="consejo consejo-offline">
                 <div class="consejo-icono"><i class="fas fa-microchip"></i></div>
@@ -1846,7 +1927,7 @@ function iniciarChat() {
     const dias = obtenerDiasTranscurridos();
     const etapaActual = getEtapaActual(dias);
 
-    let mensajeInicial = 
+    let mensajeInicial =
         `🌱 ¡Hola! Soy tu asistente de ${cultivo.nombre}.\n\n` +
         `📅 Día ${dias} - Etapa: ${etapaActual.nombre}\n` +
         `${etapaActual.descripcion}\n\n` +
@@ -1855,7 +1936,7 @@ function iniciarChat() {
         `\n\n⚠️ Recuerda: Los botones de etapa (Germinación, Plántula, etc.) NO afectan el selector de cultivo.`;
 
     if (isOffline) {
-        mensajeInicial += 
+        mensajeInicial +=
             `\n\n📡 <strong>ESP32 SIN TRANSMITIR DATOS</strong>\n` +
             `🤖 El sistema sigue funcionando de forma autónoma. Los datos son los últimos recibidos.\n` +
             `⏳ Última actualización: ${lastUpdateTime ? lastUpdateTime.toLocaleTimeString() : '--'}`;
@@ -1965,7 +2046,7 @@ window.preguntar = function(id) {
     if (isOffline) {
         if (id === "resumen") {
             agregarMensaje("📊 Dame un resumen general", "user");
-            let mensaje = 
+            let mensaje =
                 `📊 <strong>RESUMEN de ${cultivo.nombre} (MODO AUTÓNOMO)</strong>\n\n` +
                 `📡 <strong>ESP32 SIN TRANSMITIR DATOS</strong>\n` +
                 `📈 ${registrosHistorial.length} registros históricos\n` +
@@ -2043,7 +2124,7 @@ window.preguntar = function(id) {
             agregarMensaje("🔌 ¿Cómo está la bomba?", "user");
             const valor = datosActuales.bomba === true || datosActuales.bomba === "true";
             let mensaje = `📡 <strong>MODO AUTÓNOMO</strong>\n\n`;
-            mensaje += valor ? 
+            mensaje += valor ?
                 "✅ La bomba está ENCENDIDA (último estado conocido)." :
                 "⏸️ La bomba está APAGADA (último estado conocido).";
             mensaje += "\n\n🤖 El sistema sigue su ciclo programado.";
@@ -2133,9 +2214,16 @@ window.preguntar = function(id) {
     if (id === "bomba") {
         agregarMensaje("🔌 ¿Cómo está la bomba?", "user");
         const valor = datosActuales.bomba === true || datosActuales.bomba === "true";
+        const modo = bombaModo ? textoModoBomba(bombaModo) : "";
+        const seg = bombaSegundos !== null ? formatearSegundos(bombaSegundos) : "--:--";
+
         let mensaje = valor ?
             "✅ La bomba está ENCENDIDA. El sistema está pulverizando solución nutritiva." :
             "⏸️ La bomba está APAGADA. Esperando el próximo ciclo.";
+
+        if (modo) mensaje += `\n\n🔧 Modo actual: ${modo}`;
+        if (bombaSegundos !== null) mensaje += `\n⏱️ Próximo cambio en: ${seg}`;
+
         agregarMensaje(mensaje, "bot");
         return;
     }
@@ -2178,11 +2266,11 @@ window.preguntar = function(id) {
 };
 
 // =========================================================
-// 23. SELECTOR DE CULTIVO - NO SE TOCA, SOLO CAMBIA EL CULTIVO
+// 23. SELECTOR DE CULTIVO
 // =========================================================
 document.getElementById('selectorCultivo').addEventListener('change', function() {
     cultivoSeleccionado = this.value;
-    
+
     document.getElementById("chatMensajes").innerHTML = "";
     chatIniciado = false;
     previewEtapa = null;
@@ -2376,7 +2464,7 @@ const guiaPasos = [
             ["fa-temperature-half", "Temperatura ambiente y del agua"],
             ["fa-droplet", "Humedad"],
             ["fa-sun", "Luz"],
-            ["fa-power-off", "Estado de la bomba"]
+            ["fa-power-off", "Estado de la bomba con cuenta regresiva"]
         ]
     },
     {
@@ -2769,7 +2857,7 @@ function mostrarInfoCultivo(clave) {
     modalIcono.textContent = data.icono;
     modalTitulo.textContent = data.nombre;
 
-    const consejosHtml = data.consejos.map(c => 
+    const consejosHtml = data.consejos.map(c =>
         `<li>${c}</li>`
     ).join('');
 
@@ -2854,8 +2942,9 @@ setTimeout(() => {
     }
 }, 100);
 
-console.log("🚀 Aeroponia UTS - Versión corregida");
+console.log("🚀 Aeroponia UTS - Versión con cuenta regresiva de bomba");
 console.log("✅ Los botones de etapa NO afectan el selector de cultivo");
 console.log("✅ El selector de cultivo solo cambia el cultivo localmente");
+console.log("⏱️ La tarjeta de la bomba muestra el modo y el tiempo restante");
 console.log(`🌱 Cultivo: ${getCultivoInfo().nombre}`);
 console.log(`📅 Día ${obtenerDiasTranscurridos()}`);
